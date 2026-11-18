@@ -33,6 +33,53 @@ import {
   ChevronRight,
   Info
 } from 'lucide-react';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
+
+// ==========================================
+// MATH RENDERING HELPERS (KaTeX)
+// ==========================================
+function Tex({ children, display = false }) {
+  const html = useMemo(
+    () =>
+      katex.renderToString(String(children), {
+        displayMode: display,
+        throwOnError: false,
+        strict: false
+      }),
+    [children, display]
+  );
+  return display ? (
+    <div className="tex-display" dangerouslySetInnerHTML={{ __html: html }} />
+  ) : (
+    <span dangerouslySetInnerHTML={{ __html: html }} />
+  );
+}
+
+// Renders text containing inline math written as $...$
+function Rich({ text }) {
+  const parts = String(text).split(/(\$[^$]+\$)/g);
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.length > 2 && part.startsWith('$') && part.endsWith('$') ? (
+          <Tex key={i}>{part.slice(1, -1)}</Tex>
+        ) : (
+          <React.Fragment key={i}>{part}</React.Fragment>
+        )
+      )}
+    </>
+  );
+}
+
+const POSE_DESC = {
+  pregrasp:
+    '【Pre-grasp Pose $(R_p, T_p, q_p)$】：在 Grasp Pose 完成後，於 MuJoCo 開啟 2 cm contact margin 將手部往外推開，提供 CuRobo 進行無碰撞運動規劃的到達目標點。',
+  grasp:
+    '【Grasp Pose $(R_g, T_g, q_g)$】：經由 Stage 3 轉置雅可比局部精煉 (1 mm contact margin) 獲得，手部連桿貼合物體表面 $[0,\\,2\\,\\mathrm{mm}]$ 且保證 0.00 mm 零穿模。',
+  squeeze:
+    '【Squeeze Pose $q_s$】：由 Stage 4 接觸感知控制策略 (Eq. 3 & Eq. 8) 算出的關節力矩轉換而來，用於在真實世界或模擬器中向物體施加穩定內應力。'
+};
 
 // ==========================================
 // DATA DEFINITIONS (From Paper & Appendices)
@@ -85,11 +132,11 @@ const PIPELINE_STAGES = [
     device: 'Human GUI / Library',
     summary: '打破傳統從零開始隨機搜索或依賴海量遙操作數據的限制。每個靈巧手與抓取類型只需要「1 個」人工標註的初始模板，即可啟動整個自動化合成飛輪。',
     mathTitle: '模板數學定義 (Template Representation)',
-    formula: 'T = \\{ q \\in \\mathbb{R}^q, \\; \\{(p_i^h \\in \\mathbb{R}^3, \\; n_i^h \\in \\mathbb{R}^3, \\; \\text{link}_i)\\}_{i=1}^m \\}',
+    formula: 'T = \\left\\{ \\mathbf{q} \\in \\mathbb{R}^{n_q},\\; \\left\\{ \\left( p_i^h \\in \\mathbb{R}^3,\\; n_i^h \\in \\mathbb{R}^3,\\; \\text{link}_i \\right) \\right\\}_{i=1}^{m} \\right\\}',
     details: [
-      '關節組態 q ∈ ℝ^q：定義靈巧手該抓取類型的基礎自然手勢（如 Power Sphere 或 Tip Pinch）。',
-      '手部接觸點 p_i^h ∈ ℝ^3 與法向量 n_i^h ∈ ℝ^3：標註手部表面預期與物體接觸的位置與朝向。',
-      '所屬連桿名稱 (link_i)：記錄每個接觸點位於哪一個手指連桿上，供後續正向運動學與雅可比矩陣計算使用。'
+      '關節組態 $\\mathbf{q} \\in \\mathbb{R}^{n_q}$：定義靈巧手該抓取類型的基礎自然手勢（如 Power Sphere 或 Tip Pinch）。',
+      '手部接觸點 $p_i^h \\in \\mathbb{R}^3$ 與法向量 $n_i^h \\in \\mathbb{R}^3$：標註手部表面預期與物體接觸的位置與朝向。',
+      '所屬連桿名稱 ($\\text{link}_i$)：記錄每個接觸點位於哪一個手指連桿上，供後續正向運動學與雅可比矩陣計算使用。'
     ]
   },
   {
@@ -100,13 +147,13 @@ const PIPELINE_STAGES = [
     color: 'from-cyan-500 to-emerald-500',
     timeCost: '~3.0 秒 / 100,000 個初始採樣 (單張 RTX 3090)',
     device: 'NVIDIA Warp (GPU)',
-    summary: '核心洞見：與其直接調整高維度的手部關節去遷就物體，不如「先固定手部模板，密集採樣並最佳化物體的旋轉、平移與縮放 (s_o, R_o, t_o) 來對齊手部接觸點」！',
+    summary: '核心洞見：與其直接調整高維度的手部關節去遷就物體，不如「先固定手部模板，密集採樣並最佳化物體的旋轉、平移與縮放 $(s_o, R_o, t_o)$ 來對齊手部接觸點」！',
     mathTitle: '最近點距離與法向量對齊能量函數 (Eq. 7)',
     formula: 'L(s_o, R_o, t_o) = k_p \\sum_{i=1}^m \\| p_i^h - p_i^o \\|^2 + k_n \\sum_{i=1}^m \\| n_i^h - n_i^o \\|^2',
     details: [
       '密集初始化：隨機抽取模板上 1 個手部接觸點與物體表面 1 個點進行法向量反向對齊，隨機採樣法向平面內旋轉與尺度。',
-      '極簡優化能量：在優化迴圈中僅使用 NVIDIA Warp 查詢最近點 p_i^o 並最小化 Eq. 7，完全不放碰撞或力封閉項，實現極致 GPU 平行化（10萬樣本 1.2 秒優化完成）。',
-      '四道順序後過濾 (Post-Filtering)：(1) 能量閾值過濾 (>50k/80k 被濾除) → (2) 手部線段碰撞骨架 (Collision Skeleton) 濾除嚴重穿模 → (3) Batched ReLU-QP 計算力封閉品質指標 e → (4) 最遠點採樣 (FPS) 去除重複物體變換。'
+      '極簡優化能量：在優化迴圈中僅使用 NVIDIA Warp 查詢最近點 $p_i^o$ 並最小化 Eq. 7，完全不放碰撞或力封閉項，實現極致 GPU 平行化（10萬樣本 1.2 秒優化完成）。',
+      '四道順序後過濾 (Post-Filtering)：(1) 能量閾值過濾 (>50k/80k 被濾除) → (2) 手部線段碰撞骨架 (Collision Skeleton) 濾除嚴重穿模 → (3) Batched ReLU-QP 計算力封閉品質指標 $e$ → (4) 最遠點採樣 (FPS) 去除重複物體變換。'
     ]
   },
   {
@@ -121,8 +168,8 @@ const PIPELINE_STAGES = [
     mathTitle: '虛擬吸引力與轉置雅可比控制 (Eq. 8)',
     formula: 'f_i = k_f (p_i^h - p_i^o), \\quad \\tau = \\sum_{i=1}^m J_{h,i}^T f_i',
     details: [
-      '世界座標固定目標點：在 200 步迭代中，物體目標點 p_i^o 固定於世界座標系避免滑移，而手部點 p_i^h 隨手部連桿移動。',
-      '1mm 接觸邊距與 2mm 接觸容差：在 MuJoCo 設定 1mm contact margin 產生排斥力，確保碰撞網格零穿模 (PD = 0.00 mm)，並將 [0, 2mm] 內視為有效接觸。',
+      '世界座標固定目標點：在 200 步迭代中，物體目標點 $p_i^o$ 固定於世界座標系避免滑移，而手部點 $p_i^h$ 隨手部連桿移動。',
+      '1mm 接觸邊距與 2mm 接觸容差：在 MuJoCo 設定 1mm contact margin 產生排斥力，確保碰撞網格零穿模 (PD = 0.00 mm)，並將 $[0,\\,2\\,\\mathrm{mm}]$ 內視為有效接觸。',
       '三道精煉後過濾：(1) 碰撞網格零穿模檢查 → (2) 所有具標註接觸的手指必須實際接觸物體 → (3) 重新驗證力封閉指標 Eq. 6。',
       '同時生成 Pre-grasp Pose：在精煉完成後開啟 2cm contact margin 將手向外推開，自動獲得無碰撞預抓取姿態。'
     ]
@@ -139,9 +186,9 @@ const PIPELINE_STAGES = [
     mathTitle: '帶摩擦錐約束之最佳接觸力二次規劃 (Eq. 3–5)',
     formula: '(f_1, \\dots, f_m) = \\arg\\min \\left\\| \\sum_{i=1}^m J_{o,i}^T x_i - g \\right\\|^2 \\quad \\text{s.t. } x_i \\in \\mathcal{F}_i, \\; \\sum_{i=1}^m x_{i,1} \\ge \\lambda',
     details: [
-      '設 g = 0 的統一控制信號：求解合力為零但總法向力 ∑ x_{i,1} ≥ λ (約 1~10N) 的內應力組，再透過 τ = ∑ J_{h,i}^T f_i 轉換為關節控制力矩 (衍生出 Squeeze Pose)。',
+      '設 $g = 0$ 的統一控制信號：求解合力為零但總法向力 $\\sum_{i} x_{i,1} \\ge \\lambda$（約 1~10 N）的內應力組，再透過 $\\tau = \\sum_{i} J_{h,i}^{T} f_i$ 轉換為關節控制力矩 (衍生出 Squeeze Pose)。',
       '摩擦錐自然調節：當物體受到外力時，高達 1~10N 的正向接觸力提供充足的最大靜摩擦力空間，使摩擦錐自動抵消外力。',
-      '六軸嚴格測試：對 100g 物體施加 6 個正交方向的重力/外力各持續 2 秒，位移 < 5cm 且旋轉 < 15° 且無 >1cm 穿模才算成功。'
+      '六軸嚴格測試：對 100g 物體施加 6 個正交方向的重力/外力各持續 2 秒，位移 $<5\\,\\mathrm{cm}$ 且旋轉 $<15^{\\circ}$ 且無 $>1\\,\\mathrm{cm}$ 穿模才算成功。'
     ]
   },
   {
@@ -152,7 +199,7 @@ const PIPELINE_STAGES = [
     color: 'from-purple-500 to-indigo-500',
     timeCost: '10 Epochs × 10 Attempts 迭代擴增',
     device: 'Template Repository',
-    summary: '通過 MuJoCo 六軸測試的成功抓取，會自動提取其關節角 q 與更新後的實際接觸點/法向量，加入抓取模板庫中，供下一輪 Global Alignment 隨機抽樣使用！',
+    summary: '通過 MuJoCo 六軸測試的成功抓取，會自動提取其關節角 $\\mathbf{q}$ 與更新後的實際接觸點/法向量，加入抓取模板庫中，供下一輪 Global Alignment 隨機抽樣使用！',
     mathTitle: '局部接觸更新保護機制',
     formula: 'p_i^{h,\\text{new}} = \\begin{cases} p_i^{\\text{actual}}, & \\text{if } \\|p_i^{\\text{actual}} - p_i^h\\| < \\epsilon_{\\text{link}} \\\\ p_i^h, & \\text{otherwise} \\end{cases}',
     details: [
@@ -593,7 +640,7 @@ jobs:
                 {
                   tab: 'math',
                   title: '力封閉 QP 與摩擦錐互動實驗室',
-                  desc: '親手調整摩擦係數 μ (0.6 vs 0.3) 與法向力下限 λ，理解為何 Power Grasp 在低摩擦下更穩定。',
+                  desc: '親手調整摩擦係數 $\\mu$ ($0.6$ vs $0.3$) 與法向力下限 $\\lambda$，理解為何 Power Grasp 在低摩擦下更穩定。',
                   metric: 'LCQP (Eq. 1 ~ Eq. 8)'
                 },
                 {
@@ -635,7 +682,7 @@ jobs:
                       {card.title}
                       <ArrowRight className="w-4 h-4 opacity-60 group-hover:translate-x-1 transition" />
                     </h3>
-                    <p className="text-xs text-slate-400 mt-2 leading-relaxed">{card.desc}</p>
+                    <p className="text-xs text-slate-400 mt-2 leading-relaxed"><Rich text={card.desc} /></p>
                   </div>
                 </button>
               ))}
@@ -717,14 +764,14 @@ jobs:
                 </div>
 
                 <p className="text-slate-200 text-sm sm:text-base leading-relaxed bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
-                  {stage.summary}
+                  <Rich text={stage.summary} />
                 </p>
 
                 {/* Formula Box */}
                 <div className="p-4 rounded-xl bg-slate-950 border border-cyan-500/30">
                   <div className="text-xs font-mono text-cyan-400 mb-1.5">{stage.mathTitle}</div>
-                  <div className="font-mono text-sm sm:text-base text-emerald-300 overflow-x-auto py-1">
-                    {stage.formula}
+                  <div className="text-base sm:text-lg text-emerald-300 overflow-x-auto py-1">
+                    <Tex display>{stage.formula}</Tex>
                   </div>
                 </div>
 
@@ -742,7 +789,7 @@ jobs:
                         <div className="w-6 h-6 rounded-full bg-cyan-500/15 border border-cyan-500/40 text-cyan-300 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
                           {idx + 1}
                         </div>
-                        <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">{detail}</p>
+                        <p className="text-xs sm:text-sm text-slate-300 leading-relaxed"><Rich text={detail} /></p>
                       </div>
                     ))}
                   </div>
@@ -884,14 +931,20 @@ jobs:
                   1. 庫侖摩擦錐與物體接觸雅可比矩陣 (Eq. 1 & Eq. 2)
                 </h3>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  假設物體 <span className="font-mono text-white">O</span> 被靈巧手以 <span className="font-mono text-white">m</span> 個接觸點抓持。對每個接觸點 <span className="font-mono text-white">i</span>，定義接觸位置 <span className="font-mono text-white">p_i ∈ ℝ³</span>、指向物體內部的單位法向量 <span className="font-mono text-white">n_i ∈ ℝ³</span>，以及兩個正交單位切向量 <span className="font-mono text-white">d_i, c_i ∈ ℝ³</span>（滿足 <span className="font-mono text-white">n_i = d_i × c_i</span>）：
+                  <Rich text={'假設物體 $O$ 被靈巧手以 $m$ 個接觸點抓持。對每個接觸點 $i$，定義接觸位置 $p_i \\in \\mathbb{R}^3$、指向物體內部的單位法向量 $n_i \\in \\mathbb{R}^3$，以及兩個正交單位切向量 $d_i, c_i \\in \\mathbb{R}^3$（滿足 $n_i = d_i \\times c_i$）：'} />
                 </p>
-                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs sm:text-sm text-emerald-300 space-y-2 overflow-x-auto">
-                  <div>ℱ_i = &#123; x_i ∈ ℝ³ | 0 ≤ x_&#123;i,1&#125; ≤ 1, x_&#123;i,2&#125;² + x_&#123;i,3&#125;² ≤ μ² x_&#123;i,1&#125;² &#125; &nbsp;&nbsp;(Eq. 1)</div>
-                  <div>J_&#123;o,i&#125;^T = [ n_i, d_i, c_i ; p_i × n_i, p_i × d_i, p_i × c_i ] ∈ ℝ^&#123;6×3&#125; &nbsp;&nbsp;(Eq. 2)</div>
+                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-emerald-300 space-y-1 overflow-x-auto text-sm sm:text-base">
+                  <div className="flex items-center justify-between gap-3">
+                    <Tex display>{'\\mathcal{F}_i = \\left\\{ x_i \\in \\mathbb{R}^3 \\;\\middle|\\; 0 \\le x_{i,1} \\le 1,\\ x_{i,2}^2 + x_{i,3}^2 \\le \\mu^2\\, x_{i,1}^2 \\right\\}'}</Tex>
+                    <span className="text-slate-500 text-xs font-mono shrink-0">(Eq. 1)</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <Tex display>{'J_{o,i}^{T} = \\begin{bmatrix} n_i & d_i & c_i \\\\ p_i \\times n_i & p_i \\times d_i & p_i \\times c_i \\end{bmatrix} \\in \\mathbb{R}^{6\\times 3}'}</Tex>
+                    <span className="text-slate-500 text-xs font-mono shrink-0">(Eq. 2)</span>
+                  </div>
                 </div>
                 <p className="text-xs text-slate-400">
-                  其中 <span className="font-mono text-cyan-300">μ</span> 為摩擦係數，接觸力 <span className="font-mono text-cyan-300">x_i</span> 透過 <span className="font-mono text-cyan-300">w_i = J_&#123;o,i&#125;^T x_i</span> 映射為作用在物體上的 6 維螺旋力矩 (Wrench)。實作中以多邊形角錐近似圓錐，轉化為線性約束二次規劃 (LCQP) 並透過 GPU 加速之 ReLU-QP [2] 求解。
+                  <Rich text={'其中 $\\mu$ 為摩擦係數，接觸力 $x_i$ 透過 $w_i = J_{o,i}^{T} x_i$ 映射為作用在物體上的 6 維螺旋力矩 (Wrench)。實作中以多邊形角錐近似圓錐，轉化為線性約束二次規劃 (LCQP) 並透過 GPU 加速之 ReLU-QP [2] 求解。'} />
                 </p>
               </div>
 
@@ -903,19 +956,19 @@ jobs:
                   <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
                     <div className="font-bold text-white">標準六方向重力驗證 [BODex 測試基準]</div>
                     <p className="text-slate-400 mt-1">
-                      考慮 6 個正交方向的外部重力螺旋 <span className="font-mono text-amber-300">g ∈ ℝ⁶</span>，每個抓取需解算 6 次 LCQP，準確但計算成本高。
+                      考慮 6 個正交方向的外部重力螺旋 <span className="text-amber-300"><Tex>{'g \\in \\mathbb{R}^{6}'}</Tex></span>，每個抓取需解算 6 次 LCQP，準確但計算成本高。
                     </p>
                   </div>
                   <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
                     <div className="font-bold text-white">DexGraspNet [27, 47] 零摩擦等力簡化</div>
                     <p className="text-slate-400 mt-1">
-                      直接假設無摩擦且所有接觸點法向力相等 (<span className="font-mono text-rose-300">f_i = [1, 0, 0], g = 0</span>)，雖免去 QP 優化極快，但嚴重犧牲準確度。
+                      直接假設無摩擦且所有接觸點法向力相等 (<span className="text-rose-300"><Tex>{'f_i = [1,0,0]^{\\top},\\ g = 0'}</Tex></span>)，雖免去 QP 優化極快，但嚴重犧牲準確度。
                     </p>
                   </div>
                   <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/40">
                     <div className="font-bold text-emerald-300">本文採用：Wu et al. [51] 齊次力平衡公式</div>
                     <p className="text-slate-300 mt-1">
-                      設定 <span className="font-mono text-emerald-300">g = 0</span> 並附加總法向力下限約束 <span className="font-mono text-emerald-300">∑ x_&#123;i,1&#125; ≥ λ</span>，只需解 1 次 LCQP 即可同時作為 Stage 2/3 的品質過濾指標 <span className="font-mono text-emerald-300">e = ‖∑ J_&#123;o,i&#125;^T f_i‖²</span> 與 Stage 4 的內應力控制信號！
+                      設定 <span className="text-emerald-300"><Tex>{'g = 0'}</Tex></span> 並附加總法向力下限約束 <span className="text-emerald-300"><Tex>{'\\sum_{i=1}^{m} x_{i,1} \\ge \\lambda'}</Tex></span>，只需解 1 次 LCQP 即可同時作為 Stage 2/3 的品質過濾指標 <span className="text-emerald-300"><Tex>{'e = \\left\\| \\sum_{i=1}^{m} J_{o,i}^{T} f_i \\right\\|^{2}'}</Tex></span> 與 Stage 4 的內應力控制信號！
                     </p>
                   </div>
                 </div>
@@ -931,7 +984,7 @@ jobs:
                     摩擦錐與接觸感知控制互動模擬器 (Normal vs. Harder Benchmark)
                   </h3>
                   <p className="text-xs text-slate-400">
-                    調整摩擦係數 μ、接觸連桿數 m 與法向擠壓力下限 λ，觀察摩擦錐張角與抗外力穩定度變化。
+                    調整摩擦係數 <Tex>{'\\mu'}</Tex>、接觸連桿數 <Tex>{'m'}</Tex> 與法向擠壓力下限 <Tex>{'\\lambda'}</Tex>，觀察摩擦錐張角與抗外力穩定度變化。
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -939,13 +992,13 @@ jobs:
                     onClick={() => { setFrictionMu(0.6); setContactCount(9); setGraspCategorySim('Power'); }}
                     className="px-3 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 cursor-pointer"
                   >
-                    預設：Normal 測試 (μ=0.6)
+                    <Rich text={'預設：Normal 測試 ($\\mu=0.6$)'} />
                   </button>
                   <button
                     onClick={() => { setFrictionMu(0.3); setContactCount(4); setGraspCategorySim('Precision'); }}
                     className="px-3 py-1.5 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 cursor-pointer"
                   >
-                    切換：Hard 困難基準 (μ=0.3)
+                    <Rich text={'切換：Hard 困難基準 ($\\mu=0.3$)'} />
                   </button>
                 </div>
               </div>
@@ -955,9 +1008,9 @@ jobs:
                 <div className="lg:col-span-7 space-y-5">
                   <div>
                     <div className="flex justify-between text-xs mb-1.5">
-                      <span className="text-slate-300 font-medium">切向摩擦係數 (Friction Coefficient μ)：</span>
+                      <span className="text-slate-300 font-medium">切向摩擦係數 (Friction Coefficient <Tex>{'\\mu'}</Tex>)：</span>
                       <span className="font-mono text-cyan-300 font-bold">
-                        μ = {frictionMu.toFixed(2)} ({frictionMu <= 0.35 ? 'Hard 困難基準' : 'Normal 標準基準'})
+                        <Tex>{`\\mu = ${frictionMu.toFixed(2)}`}</Tex> ({frictionMu <= 0.35 ? 'Hard 困難基準' : 'Normal 標準基準'})
                       </span>
                     </div>
                     <input
@@ -973,7 +1026,7 @@ jobs:
 
                   <div>
                     <div className="flex justify-between text-xs mb-1.5">
-                      <span className="text-slate-300 font-medium">有效接觸連桿數 (Contact Link Number m)：</span>
+                      <span className="text-slate-300 font-medium">有效接觸連桿數 (Contact Link Number <Tex>{'m'}</Tex>)：</span>
                       <span className="font-mono text-emerald-300 font-bold">{contactCount} links (2mm 容差內)</span>
                     </div>
                     <input
@@ -989,7 +1042,7 @@ jobs:
 
                   <div>
                     <div className="flex justify-between text-xs mb-1.5">
-                      <span className="text-slate-300 font-medium">總法向力約束下限 (Minimum Normal Force λ - Eq. 5)：</span>
+                      <span className="text-slate-300 font-medium">總法向力約束下限 (Minimum Normal Force <Tex>{'\\lambda'}</Tex> - Eq. 5)：</span>
                       <span className="font-mono text-amber-300 font-bold">{normalLambda.toFixed(1)} N (針對 100g 物體)</span>
                     </div>
                     <input
@@ -1031,8 +1084,8 @@ jobs:
                   <svg viewBox="0 0 260 175" className="w-full max-w-[280px] h-auto">
                     {/* Object Surface */}
                     <rect x="20" y="140" width="220" height="22" rx="4" fill="#1e293b" stroke="#475569" />
-                    <text x="130" y="155" textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">
-                      Object Surface (Contact Point p_i)
+                    <text x="130" y="155" textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="serif" fontStyle="italic">
+                      Object Surface (Contact Point p<tspan fontSize="7" dy="2">i</tspan><tspan dy="-2">)</tspan>
                     </text>
 
                     {/* Friction Cone Polygon */}
@@ -1052,8 +1105,8 @@ jobs:
                     {/* Normal Vector n_i */}
                     <line x1="130" y1="140" x2="130" y2="25" stroke="#10b981" strokeWidth="2.5" />
                     <polygon points="130,18 125,28 135,28" fill="#10b981" />
-                    <text x="136" y="34" fill="#10b981" fontSize="10" fontFamily="monospace">
-                      n_i (Normal Force x_i,1)
+                    <text x="136" y="34" fill="#10b981" fontSize="10" fontFamily="serif" fontStyle="italic">
+                      n<tspan fontSize="7" dy="2">i</tspan><tspan dy="-2"> (Normal Force x</tspan><tspan fontSize="7" dy="2">i,1</tspan><tspan dy="-2">)</tspan>
                     </text>
 
                     {/* Contact Point Dot */}
@@ -1066,7 +1119,7 @@ jobs:
                       <div className="text-sm font-mono font-bold text-cyan-300">{sandboxResult.coneAngle}°</div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-slate-400">QP 殘差指標 e</div>
+                      <div className="text-[11px] text-slate-400">QP 殘差指標 <Tex>{'e'}</Tex></div>
                       <div className="text-sm font-mono font-bold text-emerald-300">{sandboxResult.residualE}</div>
                     </div>
                     <div>
@@ -1166,11 +1219,11 @@ jobs:
                         <div className="text-xl font-extrabold text-emerald-300 mt-0.5">{selectedGraspType.cln}</div>
                       </div>
                       <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800">
-                        <div className="text-[11px] text-slate-400">標準測試 GSR (μ=0.6)</div>
+                        <div className="text-[11px] text-slate-400"><Rich text={'標準測試 GSR ($\\mu=0.6$)'} /></div>
                         <div className="text-xl font-extrabold text-cyan-300 mt-0.5">{selectedGraspType.gsrNormal}%</div>
                       </div>
                       <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800">
-                        <div className="text-[11px] text-slate-400">困難測試 GSR (μ=0.3)</div>
+                        <div className="text-[11px] text-slate-400"><Rich text={'困難測試 GSR ($\\mu=0.3$)'} /></div>
                         <div className="text-xl font-extrabold text-amber-300 mt-0.5">{selectedGraspType.gsrHard}%</div>
                       </div>
                     </div>
@@ -1272,12 +1325,7 @@ jobs:
                   </svg>
 
                   <p className="text-xs text-slate-300 mt-2 leading-relaxed text-center">
-                    {activePoseMode === 'pregrasp' &&
-                      '【Pre-grasp Pose (R_p, T_p, q_p)】：在 Grasp Pose 完成後，於 MuJoCo 開啟 2cm contact margin 將手部往外推開，提供 CuRobo 進行無碰撞運動規劃的到達目標點。'}
-                    {activePoseMode === 'grasp' &&
-                      '【Grasp Pose (R_g, T_g, q_g)】：經由 Stage 3 轉置雅可比局部精煉 (1mm contact margin) 獲得，手部連桿貼合物體表面 [0, 2mm] 且保證 0.00mm 零穿模。'}
-                    {activePoseMode === 'squeeze' &&
-                      '【Squeeze Pose (q_s)】：由 Stage 4 接觸感知控制策略 (Eq. 3 & Eq. 8) 算出的關節力矩轉換而來，用於在真實世界或模擬器中向物體施加穩定內應力。'}
+                    <Rich text={POSE_DESC[activePoseMode]} />
                   </p>
                 </div>
               </div>
@@ -1394,10 +1442,10 @@ jobs:
                 <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
                   <div className="font-mono text-cyan-400 font-bold">1. 雙路輸入特徵</div>
                   <p className="text-slate-300">
-                    • <strong>單視角物體點雲</strong>（由 SAM2 分割）經由 MinkowskiEngine <strong>Sparse 3DConv</strong> 提取視覺特徵 <span className="font-mono text-white">f_v</span>。
+                    • <strong>單視角物體點雲</strong>（由 SAM2 分割）經由 MinkowskiEngine <strong>Sparse 3DConv</strong> 提取視覺特徵 <Tex>{'f_v'}</Tex>。
                   </p>
                   <p className="text-slate-300">
-                    • <strong>Grasp-type Codebook</strong>：選取第 <span className="font-mono text-white">i</span> 種抓取類型的可學習嵌入向量 <span className="font-mono text-emerald-300">f_t^i</span>。
+                    • <strong>Grasp-type Codebook</strong>：選取第 <Tex>{'i'}</Tex> 種抓取類型的可學習嵌入向量 <span className="text-emerald-300"><Tex>{'f_t^{i}'}</Tex></span>。
                   </p>
                 </div>
 
@@ -1405,7 +1453,7 @@ jobs:
                   <div className="font-mono text-emerald-400 font-bold">2. 條件特徵融合</div>
                   <p className="text-slate-300">
                     將視覺特徵與類型條件特徵串接：
-                    <span className="block font-mono text-emerald-300 my-1">f_c = f_v ⊕ f_t^i</span>
+                    <span className="block text-emerald-300 my-2"><Tex display>{'f_c = f_v \\oplus f_t^{i}'}</Tex></span>
                     若移除紅框中的 Codebook，模型即退化為與 BODex 類似的無條件模型（在多類型資料集上 GSR 會從 63.9% 暴跌至 24.5%！）。
                   </p>
                 </div>
@@ -1413,14 +1461,14 @@ jobs:
                 <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
                   <div className="font-mono text-amber-400 font-bold">3. Möbius Normalizing Flow</div>
                   <p className="text-slate-300">
-                    在 SO(3) 流形上將基底分佈隨機樣本映射為手部根節點的 6-DoF 抓取姿態 <span className="font-mono text-white">R_g, T_g</span>，並輸出對數機率密度 <span className="font-mono text-amber-300">p</span> 用於候選排序。
+                    在 SO(3) 流形上將基底分佈隨機樣本映射為手部根節點的 6-DoF 抓取姿態 <Tex>{'R_g,\\ T_g'}</Tex>，並輸出對數機率密度 <span className="text-amber-300"><Tex>{'p'}</Tex></span> 用於候選排序。
                   </p>
                 </div>
 
                 <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
                   <div className="font-mono text-purple-400 font-bold">4. MLP 解碼三態關節角</div>
                   <p className="text-slate-300">
-                    將 <span className="font-mono text-white">(f_c ⊕ R_g, T_g)</span> 輸入 MLP，一次預測預抓取位移 <span className="font-mono text-white">R_p, T_p</span> 及三態關節角度 <span className="font-mono text-purple-300">q_p, q_g, q_s</span>。
+                    將 <Tex>{'(f_c \\oplus R_g,\\ T_g)'}</Tex> 輸入 MLP，一次預測預抓取位移 <Tex>{'R_p,\\ T_p'}</Tex> 及三態關節角度 <span className="text-purple-300"><Tex>{'q_p,\\ q_g,\\ q_s'}</Tex></span>。
                   </p>
                 </div>
               </div>
@@ -1432,7 +1480,7 @@ jobs:
                     Appendix D 關鍵發現 1：為何 Flow + MLP (55.5%) 遠勝 Diffusion (16.0%)？(Table IX)
                   </div>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    手部 6-DoF 根節點姿態 (R_g, T_g) 具多模態複雜分佈，適合由 Möbius Normalizing Flow 建模；而同一抓取類型下的手指關節組態 (qpos) 相對集中且規律，交由 MLP 迴歸最穩定（若全交由 Flow 訓練會出現 NaN 梯度，純 Diffusion 僅 16.0%，Diffusion + MLP 為 41.8%，而 <strong>Flow + MLP 達 55.5%</strong>）。
+                    手部 6-DoF 根節點姿態 <Tex>{'(R_g,\\ T_g)'}</Tex> 具多模態複雜分佈，適合由 Möbius Normalizing Flow 建模；而同一抓取類型下的手指關節組態 (qpos) 相對集中且規律，交由 MLP 迴歸最穩定（若全交由 Flow 訓練會出現 NaN 梯度，純 Diffusion 僅 16.0%，Diffusion + MLP 為 41.8%，而 <strong>Flow + MLP 達 55.5%</strong>）。
                   </p>
                 </div>
                 <div className="p-4 rounded-xl bg-slate-950/90 border border-slate-800">
@@ -1619,7 +1667,7 @@ jobs:
                 Appendix E 關鍵硬體洞察：Shadow Hand 真機與模擬器的欠驅動耦合差異 (Fig. 15)
               </h3>
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                在 MuJoCo Menagerie 廣泛使用的 Shadow Hand 模擬資產中，除了拇指外，每根手指最遠端的兩個關節被設為永遠相等（<span className="font-mono text-cyan-300">J₁ ≈ J₂</span>）；然而在<strong>真實世界的 Shadow Hand 硬體</strong>中，最遠端關節 <span className="font-mono text-amber-300">J₁</span> 只有在第二關節 <span className="font-mono text-amber-300">J₂</span> 彎曲達到約 <span className="font-mono text-amber-300">90°</span> 後才會開始彎曲（即多數時候 <span className="font-mono text-amber-300">J₁ = 0, J₂ ≠ 0</span>）。作者團隊透過將模擬器中的 <span className="font-mono text-white">J₁</span> 固定為 0 並重新合成資料訓練，成功在 UR10e + Shadow Hand + Azure Kinect 上實現 <strong>82.3% (約 200 次真機測試)</strong> 的高成功率！
+                在 MuJoCo Menagerie 廣泛使用的 Shadow Hand 模擬資產中，除了拇指外，每根手指最遠端的兩個關節被設為永遠相等（<span className="text-cyan-300"><Tex>{'J_1 \\approx J_2'}</Tex></span>）；然而在<strong>真實世界的 Shadow Hand 硬體</strong>中，最遠端關節 <span className="text-amber-300"><Tex>{'J_1'}</Tex></span> 只有在第二關節 <span className="text-amber-300"><Tex>{'J_2'}</Tex></span> 彎曲達到約 <span className="text-amber-300"><Tex>{'90^{\\circ}'}</Tex></span> 後才會開始彎曲（即多數時候 <span className="text-amber-300"><Tex>{'J_1 = 0,\\ J_2 \\neq 0'}</Tex></span>）。作者團隊透過將模擬器中的 <Tex>{'J_1'}</Tex> 固定為 0 並重新合成資料訓練，成功在 UR10e + Shadow Hand + Azure Kinect 上實現 <strong>82.3% (約 200 次真機測試)</strong> 的高成功率！
               </p>
             </div>
           </div>
@@ -1690,7 +1738,7 @@ jobs:
               {/* Harder Benchmark Table III */}
               <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4">
                 <h3 className="text-base font-bold text-cyan-300">
-                  Table III：困難基準測試 (Harder Benchmark: μ = 0.3, 0.002)
+                  <Rich text={'Table III：困難基準測試 (Harder Benchmark: $\\mu = 0.3,\\ 0.002$)'} />
                 </h3>
                 <p className="text-xs text-slate-400">
                   將切向與扭轉摩擦係數減半至 0.3 與 0.002，並加入 5,000 個複雜的 Objaverse 野生物體。當嘗試次數從 20 增加至 100 時，受惠於模板庫動態更新，我們的方法在 Objaverse 上達成 <strong>94.63% 物體成功率</strong>（BODex 失敗率達 27%）。

@@ -1,1 +1,5 @@
 @import "tailwindcss";
+
+.tex-display .katex-display { margin: 0.4em 0; }
+.tex-display { overflow-x: auto; overflow-y: hidden; }
+.katex { font-size: 1.05em; }
